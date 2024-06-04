@@ -1,0 +1,317 @@
+---
+title: "Clustering of Danish in the United States"
+author: "Ida Bække Johannesen & Laura Bang Jensen"
+date: "07-06-2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Packages
+First, we have created the option of installing all of the packages, that is needed in this file. Right now they are commented out using '#'. That can be removed before running the code chunk, if you are missing any of the packages.
+```{r}
+#install.packages("knitr")
+#install.packages("rmdformats")
+#install.packages("hexbin")
+#install.packages("sf")
+#install.packages("tidyverse")
+#install.packages("dplyr")
+#install.packages("spdep")
+#install.packages("tmap")
+#install.packages("gridExtra")
+```
+
+Then the packages are being loaded.
+```{r}
+library(knitr)
+library(rmdformats)
+library(hexbin)
+library(sf)
+library(tidyverse)
+library(dplyr)
+library(spdep)
+library(tmap)
+```
+
+## load data
+We have created two datasets manually, containing the data that is used in this code. We load them separately and them combine them.
+```{r}
+immigrants_1920 <- read.csv2("../data/1920.csv") 
+speakers_2009 <-  read.csv2("../data/danish_speakers_2009.csv")
+
+# merging the two datasets by "state" column
+combined_data <- merge(x = immigrants_1920, y = speakers_2009, by = "state") 
+```
+
+## plotting maps
+For plotting maps of the United States, firstly we load a shapefile of the US. We then manipulate the map by cutting out any non-state US territories and creating a bounding box, that we can use to crop the map to an appropriate size.
+```{r}
+# load a shape file of the US
+state_map <- read_sf("../data/tl_2023_us_state/tl_2023_us_state.shp") 
+
+# cut out the territories
+clean_state <- state_map[!grepl("9", state_map$REGION),] 
+
+# creating bounding box
+bbox <- st_bbox(c(xmin = -169.5312996, ymin = -24.894595, xmax = -30.93457, ymax = 71.635547))
+
+# cropping according to bounding box
+crop_map <- st_crop(clean_state, bbox)
+
+# plotting the shapefile to check it
+plot(crop_map$geometry) 
+
+```
+
+
+Then we merge the data with the shapefile, so the geometry of the state polygons fits with the the data we have. After that, we transform it to a simple feature, which is necessary to be able to plot it later. We are interested at looking at the data in three different ways: as raw numbers, as a percentage relative to the overall population, and as the number of immigrants/speakers per square kilometer of the state. To do that we need to calculate the relative population and the population of Danes per square kilometer.
+```{r}
+# merging the dataset we have created with the shapefile
+geometry_data <- merge(combined_data, crop_map, by.x = "state", by.y = "NAME") 
+
+# transforming it into a simple feature
+transformed_data <- st_as_sf(geometry_data) 
+
+# add columns with relative population of Danes compared to overall population
+transformed_data$rel_pop_1920 <- transformed_data$danish_immigrants/transformed_data$population_1920*100
+transformed_data$rel_pop_2009 <- transformed_data$danish_speakers/transformed_data$population_2009*100
+
+# add columns with population of Danes per square kilometer
+transformed_data$rel_area_1920 <- transformed_data$danish_immigrants/transformed_data$area
+transformed_data$rel_area_2009 <- transformed_data$danish_speakers/transformed_data$area
+
+```
+
+
+```{r}
+# defining a color palette for the plots
+myPalette <- c("#EDF8B1", "#C7E9B4", "#7FCDBB","#41B6C4", "#1D91C0", "#225EA8")
+```
+
+First we plot the Danish immigrants from 1920 in three different ways. 
+```{r}
+a1 <- tm_shape(transformed_data) + 
+      tm_polygons(col = "danish_immigrants", palette = myPalette, style = "jenks", n=6, title = "") +
+      tm_layout(legend.outside = TRUE, main.title = "Number of Danish immigrants - 1920", main.title.size = 0.8,
+                main.title.position = "center")
+b1 <- tm_shape(transformed_data) + 
+      tm_polygons(col = "rel_pop_1920", palette = myPalette, style = "jenks", n=6, title = "") +
+      tm_layout(legend.outside = TRUE, main.title = "Relative number of danes to overall population - 1920",
+                main.title.size = 0.8, main.title.position = "center")
+c1 <- tm_shape(transformed_data) + 
+      tm_polygons(col = "rel_area_1920", palette = myPalette, style = "jenks", n=6, title = "") +
+      tm_layout(legend.outside = TRUE, main.title = "Relative number of danes to overall area - 1920", 
+                main.title.size = 0.8, main.title.position = "center")
+
+# plot them all together
+tmap_arrange(a1, b1, c1)
+```
+
+Then we plot the Danish speakers from 2009 in three different ways. 
+```{r}
+a2 <- tm_shape(transformed_data) + 
+      tm_polygons(col = "danish_speakers", palette = myPalette, style = "jenks", n=6, title = "") +
+      tm_layout(legend.outside = TRUE, main.title = "Number of Danish speakers - 2009", main.title.size = 0.6,
+                main.title.position = "center")
+b2 <- tm_shape(transformed_data) + 
+      tm_polygons(col = "rel_pop_2009", palette = myPalette, style = "jenks", n=6, title = "") +
+      tm_layout(legend.outside = TRUE, main.title = "Relative number of Danish speakers to overall population - 2009",
+                main.title.size = 0.6, main.title.position = "center")
+c2 <- tm_shape(transformed_data) + 
+      tm_polygons(col = "rel_area_2009", palette = myPalette, style = "jenks", n=6, title = "") +
+      tm_layout(legend.outside = TRUE, main.title = "Relative number of Danish speakers to overall area - 2009",
+                main.title.size = 0.6, main.title.position = "center")
+
+# plot them all together
+tmap_arrange(a2, b2, c2)
+```
+
+
+## plotting hexbin maps
+To create a different type of visualization, we have decided to create hexbin maps over the same data. First we load a file with the hexbin geometry, and clean up the names in the column where they have the state names. That is necessary to be able to merge it with our data.
+```{r}
+# load file with hexbin geometry
+us_hex <- read_sf("../data/us_states_hexgrid.geojson")
+
+# cleaning up the state names
+us_hex <- us_hex %>%
+  mutate(google_name = gsub(" \\(United States\\)", "", google_name))
+
+# plot hexbins to check it
+plot(st_geometry(us_hex))
+
+```
+
+Then we merge the hexbin file with our data, and transform it into a simple feature. We once again calculate the relative population and the population of Danes per square kilometer for both years, in order to add these as extra columns in our dataset.
+```{r}
+# merge the dataset with the file with hexbin geometries
+hex_data <- merge(combined_data, us_hex, by.x = "state", by.y = "google_name") 
+
+# transform into a simple feature
+transformed_hex <- st_as_sf(hex_data)
+
+# add columns with relative population of danes compared to overall population
+transformed_hex$rel_pop_1920 <- transformed_hex$danish_immigrants/transformed_hex$population_1920*100
+transformed_hex$rel_pop_2009 <- transformed_hex$danish_speakers/transformed_hex$population_2009*100
+
+# add columns with population of danes per square kilometer
+transformed_hex$rel_area_1920 <- transformed_hex$danish_immigrants/transformed_hex$area
+transformed_hex$rel_area_2009 <- transformed_hex$danish_speakers/transformed_hex$area
+
+```
+
+Then we can begin to create the hexbin plots that we need.
+```{r}
+# plot number of Danish immigrants - 1920
+tm_shape(transformed_hex) + 
+      tm_polygons(col = "danish_immigrants", palette = myPalette, style = "jenks", n=6, border.col = "white", 
+                  title = "") + 
+      tm_text(text = "iso3166_2", col = "black", size = 1) + 
+      tm_layout(main.title = "Number of Danish immigrants - 1920", main.title.size = 1,
+                main.title.position = "center")
+```
+
+```{r}
+# plot relative number of danes to overall population - 1920
+tm_shape(transformed_hex) + 
+      tm_polygons(col = "rel_pop_1920", palette = myPalette, style = "jenks", n=6, border.col = "white", 
+                  title = "") + 
+      tm_text(text = "iso3166_2", col = "black", size = 1) + 
+      tm_layout(main.title = "Relative number of danes to overall population - 1920", main.title.size = 1,
+                main.title.position = "center")
+```
+
+
+```{r}
+# plot relative number of danes to overall area - 1920
+tm_shape(transformed_hex) + 
+      tm_polygons(col = "rel_area_1920", palette = myPalette, style = "jenks", n=6, border.col = "white", 
+                  title = "") + 
+      tm_text(text = "iso3166_2", col = "black", size = 1) + 
+      tm_layout(main.title = "Relative number of danes to overall area - 1920", main.title.size = 1,
+                main.title.position = "center")
+```
+
+```{r}
+# plot number of Danish speakers - 2009
+tm_shape(transformed_hex) + 
+      tm_polygons(col = "danish_speakers", palette = myPalette, style = "jenks", n=6, border.col = "white", 
+                  title = "") + 
+      tm_text(text = "iso3166_2", col = "black", size = 1) + 
+      tm_layout(main.title = "Number of Danish speakers - 2009", main.title.size = 1,
+                main.title.position = "center")
+```
+
+```{r}
+# plot relative number of Danish speakers to overall population - 2009
+tm_shape(transformed_hex) + 
+      tm_polygons(col = "rel_pop_2009", palette = myPalette, style = "jenks", n=6, border.col = "white", 
+                  title = "") + 
+      tm_text(text = "iso3166_2", col = "black", size = 1) + 
+      tm_layout(main.title = "Relative number of Danish speakers to overall population - 2009", main.title.size = 1,
+                main.title.position = "center")
+```
+
+```{r}
+# plot relative number of Danish speakers to overall area - 2009
+tm_shape(transformed_hex) + 
+      tm_polygons(col = "rel_area_2009", palette = myPalette, style = "jenks", n=6, border.col = "white", 
+                  title = "") + 
+      tm_text(text = "iso3166_2", col = "black", size = 1) + 
+      tm_layout(main.title = "Relative number of Danish speakers to overall area - 2009", main.title.size = 1,
+                main.title.position = "center")
+```
+
+
+## Calculate neighbors
+To figure out whether there is a geographical clustering in the data, we find nearest neighbors, both using queen adjacency and just finding the four nearest. We also calculate Moran's I and run a Monte Carlo simulation, to determine the statistical significance of clustering.
+```{r}
+# calculate neighbors for 1920 data - queen adjacency
+
+# remove rows with NA in rel_pop_1920
+data_filtered_1920 <- transformed_data[!is.na(transformed_data$rel_pop_1920), ]
+
+# calculate neighbor states
+nb_qa_1920 <- poly2nb(data_filtered_1920$geometry)
+
+# get centroids
+state_centers_1920 <- st_coordinates(st_centroid(data_filtered_1920$geometry))
+
+# plot nearest neighbors
+plot(data_filtered_1920$geometry); plot(nb_qa_1920, state_centers_1920, col = "#1D91C0",add = TRUE)
+
+# run Moran's I on filtered data
+moran.test(data_filtered_1920$rel_pop_1920, nb2listw(nb_qa_1920, style = "W",zero.policy=TRUE), zero.policy=TRUE)
+
+# monte carlo simulation
+moran.mc(data_filtered_1920$rel_pop_1920,
+         nb2listw(nb_qa_1920, zero.policy=TRUE),
+         zero.policy=TRUE, nsim = 999)
+
+```
+
+
+```{r}
+# calculate neighbors for 1920 data - nearest neighbors
+
+# calculate neighbor states
+nb_nn_1920 <- knn2nb(knearneigh(state_centers_1920, k = 4))
+
+# plot nearest neighbors
+plot(data_filtered_1920$geometry); plot(nb_nn_1920, state_centers_1920, col = "#1D91C0",add = TRUE)
+
+# run Moran's I on filtered data
+moran.test(data_filtered_1920$rel_pop_1920, nb2listw(nb_nn_1920, style = "W",zero.policy=TRUE), zero.policy=TRUE)
+
+# monte carlo simulation
+moran.mc(data_filtered_1920$rel_pop_1920,
+         nb2listw(nb_nn_1920, zero.policy=TRUE),
+         zero.policy=TRUE, nsim = 999)
+```
+
+
+```{r}
+# calculate neighbors for 2009 data - queen adjacency
+
+# remove rows with NA in rel_pop_2009
+data_filtered_2009 <- transformed_data[!is.na(transformed_data$rel_pop_2009), ]
+
+# calculate neighbor states
+nb_qa_2009 <- poly2nb(data_filtered_2009$geometry)
+
+# get centroids
+state_centers_2009 <- st_coordinates(st_centroid(data_filtered_2009$geometry))
+
+# plot nearest neighbors
+plot(data_filtered_2009$geometry); plot(nb_qa_2009, state_centers_2009, col = "#1D91C0",add = TRUE)
+
+# run Moran's I on filtered data
+moran.test(data_filtered_2009$rel_pop_2009, nb2listw(nb_qa_2009, style = "W",zero.policy=TRUE), zero.policy=TRUE)
+
+# monte carlo simulation
+moran.mc(data_filtered_2009$rel_pop_2009,
+         nb2listw(nb_qa_2009, zero.policy=TRUE),
+         zero.policy=TRUE, nsim = 999)
+
+```
+
+
+```{r}
+# calculate neighbors for 2009 data - nearest neighbors
+
+# calculate neighbor states
+nb_nn_2009 <- knn2nb(knearneigh(state_centers_2009, k = 4))
+
+# plot nearest neighbors
+plot(data_filtered_2009$geometry); plot(nb_nn_2009, state_centers_2009, col = "#1D91C0",add = TRUE)
+
+# run Moran's I on filtered data
+moran.test(data_filtered_2009$rel_pop_2009, nb2listw(nb_nn_2009, style = "W",zero.policy=TRUE), zero.policy=TRUE)
+
+# monte carlo simulation
+moran.mc(data_filtered_2009$rel_pop_2009,
+         nb2listw(nb_nn_2009, zero.policy=TRUE),
+         zero.policy=TRUE, nsim = 999)
+```
