@@ -1,5 +1,5 @@
 # Clustering of Danish in the United States: A Spatial Analysis Project
-
+*Laura Bang Jensen & Ida Bække Johannesen*
 ## Short description:
 This repository contains a project carried out as part of the exam for the Spatial Analytics course at Aarhus University. The project aims to investigate the relationship between Danes immigrating to the United States in 1920 and the amount of people speaking Danish in the United States in 2009. The analysis looks for clustering of Danish immigrants and Danish speakers. This is done by first creating visualizations of the data, then calculating Moran's I by finding the nearest neighbors for each state, and lastly running a Monte Carlo simulation. 
 
@@ -23,4 +23,7 @@ Afterwards, the ```code``` folder's Rmarkdown file can be opened and run. It use
 
 ## Contact
 If any questions arise, feel free to contact us on:
-202108065@post.au.dk or 202105564@post.au.dk
+
+Laura: 202108065@post.au.dk
+
+Ida: 202105564@post.au.dk
